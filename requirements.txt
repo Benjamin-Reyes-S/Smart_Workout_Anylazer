@@ -1,0 +1,4 @@
+pandas
+pydantic
+langchain-core
+langchain-ollama

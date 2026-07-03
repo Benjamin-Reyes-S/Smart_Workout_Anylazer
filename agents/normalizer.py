@@ -16,34 +16,31 @@ from langchain_ollama import ChatOllama
 # 1. Load CSV
 # -----------------------------
 
-data = pd.read_csv("data.csv")
-
-raw_training_data = data.to_csv(index=False)
+from pathlib import Path
 
 
 # -----------------------------
 # 2. Define structured output
 # -----------------------------
 
+"""
 SessionType = Literal[
     "push",
     "pull",
-    "legs"
+    "legs",
+    "upper",
+    "lower",
+    "full_body",
+    "unknown"
 ]
-
+"""
 
 class DetectedExercise(BaseModel):
-    exercise_id: str = Field(
-        description="Canonical snake_case ID, for example bench_press, back_squat, deadlift"
-    )
     canonical_name: str = Field(
         description="Clean human-readable exercise name, for example Bench Press"
     )
     raw_names_detected: List[str] = Field(
-        description="All raw names or aliases found in the CSV for this exercise"
-    )
-    likely_session_type: SessionType = Field(
-        description="Most likely session type where this exercise appears"
+        description="All raw names or aliases found in the data file for this exercise"
     )
     track_for_progress: bool = Field(
         description="True only for bench_press, back_squat, or deadlift"
@@ -51,7 +48,6 @@ class DetectedExercise(BaseModel):
 
 
 class ExerciseExtractionResult(BaseModel):
-    athlete_id: str
     exercises: List[DetectedExercise]
 
 
@@ -60,41 +56,34 @@ class ExerciseExtractionResult(BaseModel):
 # -----------------------------
 
 prompt_detect_exercises = ChatPromptTemplate.from_messages([
-    (
-        "system",
-        """
-You are a workout data normalization agent.
+        (
+            "system",
+            """
+    You are a workout data normalization agent.
 
-Your task is to read raw training data from a CSV and extract only the exercise names.
+    Your task is to read raw training data and extract only the exercise names from all workout sessions.
 
-Instructions:
-1. Find all exercises in the full dataset.
-2. Group obvious aliases together.
-   Example: "Bench", "Bench Press", "Barbell Bench" should become bench_press.
-3. Generate a canonical snake_case exercise_id.
-4. Generate a clean canonical_name.
-5. Detect the likely session type: push, pull, legs, upper, lower, full_body, or unknown.
-6. Set track_for_progress=true only for:
-   - bench_press
-   - back_squat
-   - deadlift
+    Instructions:
+    1. Find all exercises in the provided training data.
+    2. Group obvious aliases together but separate if the equipment differs.
+    3. Generate a clean canonical_name.
+    4. Do not extract dates.
+    5. Do not extract sets.
+    6. Do not extract reps.
+    7. Do not extract weight.
+    8. Do not invent exercises.
+    """
+        ),
+        (
+            "human",
+            """
+    Athlete ID: {athlete_id}
 
-Do not extract dates yet.
-Do not extract sets yet.
-Do not extract reps or weight yet.
-Only return the exercise dictionary.
-"""
-    ),
-    (
-        "human",
-        """
-Athlete ID: {athlete_id}
-
-Raw training data:
-{raw_training_data}
-"""
-    )
-])
+    Raw training data:
+    {raw_training_data}
+    """
+        )
+    ])
 
 
 # -----------------------------
@@ -102,7 +91,7 @@ Raw training data:
 # -----------------------------
 
 model = ChatOllama(
-    model="llama2:7b-chat",  # Replace with the exact name from `ollama list`
+    model="llama3.1:8b",
     temperature=0
 )
 
@@ -125,6 +114,9 @@ chain = prompt_detect_exercises | structured_model
 # 7. Invoke chain
 # -----------------------------
 
+# Load raw training data from CSV
+raw_training_data = Path("data.csv").read_text(encoding="utf-8")
+
 result = chain.invoke({
     "athlete_id": "benjamin",
     "raw_training_data": raw_training_data
@@ -135,5 +127,4 @@ result = chain.invoke({
 # 8. Use result as a class object
 # -----------------------------
 
-print(type(result))
-print(result)
+print(result.model_dump_json(indent=2))
